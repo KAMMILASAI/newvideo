@@ -1,0 +1,88 @@
+package com.video.demo.service;
+
+import com.video.demo.dto.JoinRoomRequest;
+import com.video.demo.dto.RoomRequest;
+import com.video.demo.dto.RoomResponse;
+import com.video.demo.model.Room;
+import com.video.demo.repository.RoomRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+public class RoomService {
+    
+    private final RoomRepository roomRepository;
+    
+    public RoomResponse createRoom(RoomRequest request) {
+        // Generate unique room code if not provided
+        String roomCode = request.getRoomCode();
+        if (roomCode == null || roomCode.isEmpty()) {
+            roomCode = generateRoomCode();
+        }
+        
+        // Check if room code already exists
+        if (roomRepository.existsByRoomCode(roomCode)) {
+            throw new RuntimeException("Room code already exists");
+        }
+        
+        Room room = new Room(
+            roomCode,
+            request.getPassword(),
+            request.getRoomName() != null ? request.getRoomName() : "Meeting Room"
+        );
+        
+        Room savedRoom = roomRepository.save(room);
+        return mapToResponse(savedRoom);
+    }
+    
+    public RoomResponse joinRoom(JoinRoomRequest request) {
+        Room room = roomRepository.findByRoomCode(request.getRoomCode())
+            .orElseThrow(() -> new RuntimeException("Room not found"));
+        
+        if (!room.getPassword().equals(request.getPassword())) {
+            throw new RuntimeException("Invalid password");
+        }
+        
+        if (!room.isActive()) {
+            throw new RuntimeException("Room is not active");
+        }
+        
+        // Add participant
+        room.getParticipants().add(request.getUsername());
+        roomRepository.save(room);
+        
+        return mapToResponse(room);
+    }
+    
+    public void leaveRoom(String roomCode, String username) {
+        Room room = roomRepository.findByRoomCode(roomCode)
+            .orElseThrow(() -> new RuntimeException("Room not found"));
+        
+        room.getParticipants().remove(username);
+        
+        // Deactivate room if no participants left
+        if (room.getParticipants().isEmpty()) {
+            room.setActive(false);
+        }
+        
+        roomRepository.save(room);
+    }
+    
+    private String generateRoomCode() {
+        return UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    }
+    
+    private RoomResponse mapToResponse(Room room) {
+        RoomResponse response = new RoomResponse();
+        response.setId(room.getId());
+        response.setRoomCode(room.getRoomCode());
+        response.setRoomName(room.getRoomName());
+        response.setCreatedAt(room.getCreatedAt());
+        response.setParticipants(room.getParticipants());
+        response.setActive(room.isActive());
+        return response;
+    }
+}
