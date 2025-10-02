@@ -99,6 +99,19 @@ public class RoomService {
         }
     }
     
+    public void deleteRoom(String roomCode, String username) {
+        Room room = roomRepository.findByRoomCode(roomCode)
+            .orElseThrow(() -> new RuntimeException("Room not found"));
+        
+        // Only allow creator to delete the room
+        if (!room.getCreator().equals(username)) {
+            throw new RuntimeException("Only the room creator can delete this room");
+        }
+        
+        System.out.println("🗑️ Deleting room and all data: " + roomCode + " by " + username);
+        roomRepository.delete(room);
+    }
+    
     private RoomResponse mapToResponse(Room room) {
         RoomResponse response = new RoomResponse();
         response.setId(room.getId());

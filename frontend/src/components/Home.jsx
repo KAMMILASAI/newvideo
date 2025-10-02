@@ -11,7 +11,9 @@ function Home() {
     roomCode: '',
     password: '',
     roomName: '',
-    username: ''
+    username: '',
+    maxMembers: '2',
+    userRole: 'candidate'
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -40,7 +42,8 @@ function Home() {
           roomCode: formData.roomCode || undefined,
           password: formData.password,
           roomName: formData.roomName || 'Meeting Room',
-          creator: formData.username
+          creator: formData.username,
+          maxMembers: parseInt(formData.maxMembers)
         }),
       });
 
@@ -51,6 +54,8 @@ function Home() {
         sessionStorage.setItem('roomCode', data.roomCode);
         sessionStorage.setItem('password', formData.password);
         sessionStorage.setItem('username', formData.username);
+        sessionStorage.setItem('userRole', 'recruiter'); // Room creator is always recruiter
+        sessionStorage.setItem('isCreator', 'true'); // Mark as room creator
         navigate(`/room/${data.roomCode}`);
       } else {
         console.error('Create room error:', data);
@@ -78,7 +83,8 @@ function Home() {
         body: JSON.stringify({
           roomCode: formData.roomCode,
           password: formData.password,
-          username: formData.username
+          username: formData.username,
+          userRole: formData.userRole
         }),
       });
 
@@ -89,6 +95,8 @@ function Home() {
         sessionStorage.setItem('roomCode', data.roomCode);
         sessionStorage.setItem('password', formData.password);
         sessionStorage.setItem('username', formData.username);
+        sessionStorage.setItem('userRole', formData.userRole);
+        sessionStorage.setItem('isCreator', 'false'); // Mark as not room creator
         navigate(`/room/${data.roomCode}`);
       } else {
         console.error('Join room error:', data);
@@ -140,14 +148,21 @@ function Home() {
               </div>
 
               <div className="form-group">
-                <label>Room Code (Optional)</label>
-                <input
-                  type="text"
-                  name="roomCode"
-                  placeholder="Leave empty to auto-generate"
-                  value={formData.roomCode}
+                <label>Max Members *</label>
+                <select
+                  name="maxMembers"
+                  value={formData.maxMembers}
                   onChange={handleChange}
-                />
+                  required
+                >
+                  <option value="2">2 members</option>
+                  <option value="3">3 members</option>
+                  <option value="4">4 members</option>
+                  <option value="5">5 members</option>
+                  <option value="6">6 members</option>
+                  <option value="8">8 members</option>
+                  <option value="10">10 members</option>
+                </select>
               </div>
 
               <div className="form-group">
@@ -210,6 +225,19 @@ function Home() {
                   onChange={handleChange}
                   required
                 />
+              </div>
+
+              <div className="form-group">
+                <label>Join As *</label>
+                <select
+                  name="userRole"
+                  value={formData.userRole}
+                  onChange={handleChange}
+                  required
+                >
+                  <option value="candidate">Candidate</option>
+                  <option value="recruiter">Recruiter</option>
+                </select>
               </div>
             </>
           )}

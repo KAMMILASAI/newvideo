@@ -104,4 +104,23 @@ public class RoomController {
                 .body(Map.of("error", e.getMessage()));
         }
     }
+    
+    @PostMapping("/end-meeting")
+    public ResponseEntity<?> endMeeting(@RequestBody Map<String, String> request) {
+        try {
+            String roomCode = request.get("roomCode");
+            String username = request.get("username");
+            
+            // Delete chat history first
+            chatService.deleteChatHistory(roomCode);
+            
+            // Delete the room
+            roomService.deleteRoom(roomCode, username);
+            
+            return ResponseEntity.ok(Map.of("message", "Meeting ended successfully"));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                .body(Map.of("error", e.getMessage()));
+        }
+    }
 }

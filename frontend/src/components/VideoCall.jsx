@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash, FaPhoneSlash } from 'react-icons/fa';
+import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash, FaPhoneSlash, FaUsers, FaExpand, FaCompress, FaComment, FaTimes, FaDesktop } from 'react-icons/fa';
 import Chat from './Chat';
+import ParticipantList from './ParticipantList';
 import '../styles/VideoCall.css';
 
 // Use environment variables for deployment
@@ -46,6 +47,33 @@ function VideoCall() {
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [error, setError] = useState('');
   const [isRoomInactive, setIsRoomInactive] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isParticipantsOpen, setIsParticipantsOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [screenShareStream, setScreenShareStream] = useState(null);
+  const userRole = sessionStorage.getItem('userRole');
+  
+  // Chat state
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState('');
+
+  // Load chat history
+  const loadChatHistory = async () => {
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+      const response = await fetch(`${API_URL}/rooms/chat/history/${roomCode}`);
+      if (response.ok) {
+        const history = await response.json();
+        setMessages(history.map(msg => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        })));
+      }
+    } catch (error) {
+      console.error('Error loading chat history:', error);
+    }
+  };
   
   const localVideoRef = useRef(null);
   const wsRef = useRef(null);
@@ -65,6 +93,13 @@ function VideoCall() {
       cleanup();
     };
   }, []);
+
+  // Load chat history when chat is opened
+  useEffect(() => {
+    if (isChatOpen && roomCode) {
+      loadChatHistory();
+    }
+  }, [isChatOpen, roomCode]);
 
   // Add this useEffect to handle peer connections when localStream is ready
   useEffect(() => {
@@ -187,6 +222,29 @@ function VideoCall() {
           break;
         case 'user-left':
           handleUserLeft(message.username);
+          break;
+        case 'chat':
+          setMessages(prev => [...prev, {
+            ...message,
+            timestamp: new Date(message.timestamp)
+          }]);
+          break;
+        case 'meeting-ended':
+          alert('The meeting has been ended by the host. You will be redirected to the home page.');
+          // Clean up local resources
+          if (localStream) {
+            localStream.getTracks().forEach(track => track.stop());
+          }
+          if (screenShareStream) {
+            screenShareStream.getTracks().forEach(track => track.stop());
+          }
+          if (wsRef.current) {
+            wsRef.current.close();
+          }
+          // Clear session storage
+          sessionStorage.clear();
+          // Navigate to home
+          navigate('/');
           break;
       }
     };
@@ -464,6 +522,71 @@ function VideoCall() {
     }
   };
 
+  const toggleScreenShare = async () => {
+    try {
+      if (!isScreenSharing) {
+        // Start screen sharing
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: false
+        });
+        
+        setScreenShareStream(screenStream);
+        setIsScreenSharing(true);
+        
+        // Handle when user stops sharing
+        screenStream.getVideoTracks()[0].onended = () => {
+          setIsScreenSharing(false);
+          setScreenShareStream(null);
+        };
+        
+        // Replace video track in all peer connections
+        peerConnectionsRef.current.forEach((pc, participant) => {
+          const sender = pc.getSenders().find(s => 
+            s.track && s.track.kind === 'video'
+          );
+          if (sender) {
+            sender.replaceTrack(screenStream.getVideoTracks()[0]);
+          }
+        });
+        
+        // Update local video
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = screenStream;
+        }
+      } else {
+        // Stop screen sharing and switch back to camera
+        if (screenShareStream) {
+          screenShareStream.getTracks().forEach(track => track.stop());
+        }
+        
+        setIsScreenSharing(false);
+        setScreenShareStream(null);
+        
+        // Restore camera video track in all peer connections
+        if (localStream) {
+          const videoTrack = localStream.getVideoTracks()[0];
+          peerConnectionsRef.current.forEach((pc, participant) => {
+            const sender = pc.getSenders().find(s => 
+              s.track && s.track.kind === 'video'
+            );
+            if (sender && videoTrack) {
+              sender.replaceTrack(videoTrack);
+            }
+          });
+          
+          // Restore local video
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = localStream;
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error toggling screen share:', err);
+      setError('Screen sharing failed or was denied');
+    }
+  };
+
   const reactivateRoom = async () => {
     try {
       const response = await fetch(`${API_URL}/reactivate`, {
@@ -490,6 +613,60 @@ function VideoCall() {
     } catch (err) {
       console.error('Error reactivating room:', err);
       setError('Failed to reactivate room');
+    }
+  };
+
+  const endMeeting = async () => {
+    if (!window.confirm('Are you sure you want to end this meeting? This will permanently delete the room and all chat data.')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/end-meeting`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          roomCode: roomCode,
+          username: username
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        // Notify all participants that meeting is ending
+        if (wsRef.current) {
+          wsRef.current.send(JSON.stringify({
+            type: 'meeting-ended',
+            roomCode: roomCode,
+            username: username
+          }));
+        }
+        
+        // Clean up local resources
+        if (localStream) {
+          localStream.getTracks().forEach(track => track.stop());
+        }
+        if (screenShareStream) {
+          screenShareStream.getTracks().forEach(track => track.stop());
+        }
+        if (wsRef.current) {
+          wsRef.current.close();
+        }
+        
+        // Clear session storage
+        sessionStorage.clear();
+        
+        // Navigate to home
+        navigate('/');
+      } else {
+        setError(data.error || 'Failed to end meeting');
+      }
+    } catch (err) {
+      console.error('Error ending meeting:', err);
+      setError('Failed to end meeting');
     }
   };
 
@@ -523,6 +700,37 @@ function VideoCall() {
     navigate('/');
   };
 
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().then(() => {
+        setIsFullscreen(true);
+      }).catch(err => {
+        console.error('Error attempting to enable fullscreen:', err);
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().then(() => {
+          setIsFullscreen(false);
+        }).catch(err => {
+          console.error('Error attempting to exit fullscreen:', err);
+        });
+      }
+    }
+  };
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
   const cleanup = () => {
     // Stop local stream
     if (localStream) {
@@ -539,13 +747,35 @@ function VideoCall() {
     }
   };
 
+  // Handle sending chat messages
+  const handleSendMessage = (e) => {
+    e.preventDefault();
+    if (!newMessage.trim() || !wsRef.current) return;
+
+    const chatMessage = {
+      type: 'chat',
+      roomCode: roomCode,
+      username: username,
+      message: newMessage.trim(),
+      timestamp: new Date().toISOString()
+    };
+
+    wsRef.current.send(JSON.stringify(chatMessage));
+    
+    // Add message to local state immediately
+    setMessages(prev => [...prev, chatMessage]);
+    setNewMessage('');
+  };
+
   return (
     <div className="video-call-container">
       <div className="video-header">
-        <h2>Room: {roomCode}</h2>
-        <span className="participant-count">
-          {participants.length + 1} participant{participants.length !== 0 ? 's' : ''}
-        </span>
+        <div className="header-left">
+          <h2>SmartHireX</h2>
+        </div>
+        <div className="header-right">
+          <h2>Room: {roomCode}</h2>
+        </div>
       </div>
 
       {/* Error Message */}
@@ -588,36 +818,96 @@ function VideoCall() {
         </div>
       )}
 
-      <div className={`video-grid ${participants.length >= 5 ? 'has-5-or-more' : participants.length >= 3 ? 'has-3' : participants.length === 2 ? 'has-2' : ''}`}>
-        {/* Local Video */}
-        <div className="video-wrapper local">
-          <video
-            ref={localVideoRef}
-            autoPlay
-            muted
-            playsInline
-            className="video-element"
-          />
-          <div className="video-label">You ({username})</div>
-          {isVideoOff && <div className="video-off-overlay">Video Off</div>}
-        </div>
-
-        {/* Remote Videos */}
-        {Array.from(remoteStreams.entries()).map(([user, stream]) => (
-          <RemoteVideo key={user} username={user} stream={stream} />
-        ))}
-        
-        {/* Show placeholder for participants who haven't sent video yet */}
-        {participants.filter(p => !remoteStreams.has(p)).map(user => (
-          <div key={user} className="video-wrapper waiting">
-            <div className="video-off-overlay">
-              <div>📹</div>
-              <div>{user}</div>
-              <div style={{ fontSize: '12px', marginTop: '5px' }}>Connecting...</div>
+      {participants.length >= 5 ? (
+        // 5+ participants: 2 big videos on top, rest small in bottom
+        <div className="video-grid has-5-or-more">
+          {/* Top row with 2 big videos */}
+          <div className="top-row">
+            {/* Local Video */}
+            <div className="video-wrapper local">
+              <video
+                ref={localVideoRef}
+                autoPlay
+                muted
+                playsInline
+                className="video-element"
+              />
+              <div className="video-label">You ({username})</div>
+              <div className={`video-role-badge ${userRole}`}>{userRole}</div>
+              {isVideoOff && <div className="video-off-overlay">Video Off</div>}
             </div>
+
+            {/* First remote video or placeholder */}
+            {Array.from(remoteStreams.entries()).length > 0 ? (
+              <RemoteVideo 
+                key={Array.from(remoteStreams.entries())[0][0]} 
+                username={Array.from(remoteStreams.entries())[0][0]} 
+                stream={Array.from(remoteStreams.entries())[0][1]} 
+              />
+            ) : participants.length > 0 ? (
+              <div className="video-wrapper waiting">
+                <div className="video-off-overlay">
+                  <div>📹</div>
+                  <div>{participants[0]}</div>
+                  <div style={{ fontSize: '12px', marginTop: '5px' }}>Connecting...</div>
+                </div>
+              </div>
+            ) : null}
           </div>
-        ))}
-      </div>
+
+          {/* Bottom row with small videos */}
+          <div className="bottom-row">
+            {/* Remaining remote videos */}
+            {Array.from(remoteStreams.entries()).slice(1).map(([user, stream]) => (
+              <RemoteVideo key={user} username={user} stream={stream} />
+            ))}
+            
+            {/* Remaining placeholders */}
+            {participants.filter(p => !remoteStreams.has(p)).slice(1).map(user => (
+              <div key={user} className="video-wrapper waiting">
+                <div className="video-off-overlay">
+                  <div>📹</div>
+                  <div>{user}</div>
+                  <div style={{ fontSize: '12px', marginTop: '5px' }}>Connecting...</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        // 1-4 participants: use grid layout
+        <div className={`video-grid ${participants.length === 4 ? 'has-4' : participants.length === 3 ? 'has-3' : participants.length === 2 ? 'has-2' : ''}`}>
+          {/* Local Video */}
+          <div className="video-wrapper local">
+            <video
+              ref={localVideoRef}
+              autoPlay
+              muted
+              playsInline
+              className="video-element"
+            />
+            <div className="video-label">You ({username})</div>
+            <div className={`video-role-badge ${userRole}`}>{userRole}</div>
+            {isVideoOff && <div className="video-off-overlay">Video Off</div>}
+          </div>
+
+          {/* Remote Videos */}
+          {Array.from(remoteStreams.entries()).map(([user, stream]) => (
+            <RemoteVideo key={user} username={user} stream={stream} />
+          ))}
+          
+          {/* Show placeholder for participants who haven't sent video yet */}
+          {participants.filter(p => !remoteStreams.has(p)).map(user => (
+            <div key={user} className="video-wrapper waiting">
+              <div className="video-off-overlay">
+                <div>📹</div>
+                <div>{user}</div>
+                <div style={{ fontSize: '12px', marginTop: '5px' }}>Connecting...</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="controls-bar">
         <button
@@ -636,13 +926,62 @@ function VideoCall() {
           {isVideoOff ? <FaVideoSlash size={24} /> : <FaVideo size={24} />}
         </button>
 
+        {userRole === 'candidate' && (
+          <button
+            className={`control-btn screen-share-btn ${isScreenSharing ? 'active' : ''}`}
+            onClick={toggleScreenShare}
+            title={isScreenSharing ? 'Stop Screen Share' : 'Share Screen'}
+          >
+            <FaDesktop size={20} />
+          </button>
+        )}
+
         <button
-          className="control-btn leave-btn"
-          onClick={leaveCall}
-          title="Leave Call"
+          className={`control-btn fullscreen-btn ${isFullscreen ? 'active' : ''}`}
+          onClick={toggleFullscreen}
+          title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
         >
-          <FaPhoneSlash size={24} />
+          {isFullscreen ? <FaCompress size={20} /> : <FaExpand size={20} />}
         </button>
+
+        <button
+          className={`control-btn participants-btn ${isParticipantsOpen ? 'active' : ''}`}
+          onClick={() => setIsParticipantsOpen(!isParticipantsOpen)}
+          title={isParticipantsOpen ? 'Close Participants' : 'Show Participants'}
+        >
+          <FaUsers size={20} />
+          {participants.length > 0 && (
+            <span className="participant-count">
+              {participants.length + 1}
+            </span>
+          )}
+        </button>
+
+        <button
+          className={`control-btn chat-btn ${isChatOpen ? 'active' : ''}`}
+          onClick={() => setIsChatOpen(!isChatOpen)}
+          title={isChatOpen ? 'Close Chat' : 'Open Chat'}
+        >
+          {isChatOpen ? <FaTimes size={20} /> : <FaComment size={20} />}
+        </button>
+
+        {sessionStorage.getItem('isCreator') === 'true' ? (
+          <button
+            className="control-btn end-meeting-btn"
+            onClick={endMeeting}
+            title="End Meeting"
+          >
+            <FaPhoneSlash size={24} />
+          </button>
+        ) : (
+          <button
+            className="control-btn leave-btn"
+            onClick={leaveCall}
+            title="Leave Call"
+          >
+            <FaPhoneSlash size={24} />
+          </button>
+        )}
       </div>
       
       {/* Chat Component */}
@@ -650,6 +989,20 @@ function VideoCall() {
         roomCode={roomCode} 
         username={username} 
         ws={wsRef.current} 
+        messages={messages}
+        newMessage={newMessage}
+        setNewMessage={setNewMessage}
+        handleSendMessage={handleSendMessage}
+        isOpen={isChatOpen}
+        setIsOpen={setIsChatOpen}
+      />
+      
+      {/* Participant List Component */}
+      <ParticipantList 
+        participants={participants}
+        username={username}
+        isOpen={isParticipantsOpen}
+        setIsOpen={setIsParticipantsOpen}
       />
     </div>
   );
@@ -657,6 +1010,10 @@ function VideoCall() {
 
 function RemoteVideo({ username, stream }) {
   const videoRef = useRef(null);
+  // Extract role from username if it's in format "username (role)"
+  const userRole = username.includes('(') ? 
+    username.split('(')[1].replace(')', '').trim() : 
+    'participant';
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -673,6 +1030,7 @@ function RemoteVideo({ username, stream }) {
         className="video-element"
       />
       <div className="video-label">{username}</div>
+      <div className={`video-role-badge ${userRole}`}>{userRole}</div>
     </div>
   );
 }

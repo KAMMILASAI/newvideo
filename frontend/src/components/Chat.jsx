@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import '../styles/Chat.css';
 
-const Chat = ({ roomCode, username, ws }) => {
-  const [messages, setMessages] = useState([]);
-  const [newMessage, setNewMessage] = useState('');
-  const [isOpen, setIsOpen] = useState(false);
+const Chat = ({ roomCode, username, messages = [], newMessage = '', setNewMessage, handleSendMessage, isOpen, setIsOpen, ws }) => {
+  const chatContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
@@ -19,48 +17,9 @@ const Chat = ({ roomCode, username, ws }) => {
   }, [messages]);
 
   // Load chat history when component mounts
-  useEffect(() => {
-    const loadChatHistory = async () => {
-      try {
-        const response = await fetch(`${API_URL}/rooms/chat/history/${roomCode}`);
-        if (response.ok) {
-          const history = await response.json();
-          setMessages(history.map(msg => ({
-            ...msg,
-            timestamp: new Date(msg.timestamp)
-          })));
-        }
-      } catch (error) {
-        console.error('Error loading chat history:', error);
-      }
-    };
+  // Chat history loading is handled in the parent VideoCall component
 
-    if (isOpen && roomCode) {
-      loadChatHistory();
-    }
-  }, [roomCode, isOpen, API_URL]);
-
-  // Handle incoming chat messages via WebSocket
-  useEffect(() => {
-    if (!ws) return;
-
-    const handleChatMessage = (event) => {
-      const message = JSON.parse(event.data);
-      if (message.type === 'chat') {
-        setMessages(prev => [...prev, {
-          username: message.username,
-          message: message.message,
-          timestamp: new Date(message.timestamp)
-        }]);
-      }
-    };
-
-    ws.addEventListener('message', handleChatMessage);
-
-    return () => {
-      ws.removeEventListener('message', handleChatMessage);
-    };
-  }, [ws]);
+  // WebSocket message handling is done in the parent VideoCall component
 
   const sendMessage = (e) => {
     e.preventDefault();
@@ -78,7 +37,15 @@ const Chat = ({ roomCode, username, ws }) => {
   };
 
   const formatTime = (timestamp) => {
-    return timestamp.toLocaleTimeString([], { 
+    if (!timestamp) return '';
+    
+    // If timestamp is not a Date object, try to convert it
+    const date = timestamp instanceof Date ? timestamp : new Date(timestamp);
+    
+    // Check if date is valid
+    if (isNaN(date.getTime())) return '';
+    
+    return date.toLocaleTimeString([], { 
       hour: '2-digit', 
       minute: '2-digit' 
     });
@@ -88,31 +55,44 @@ const Chat = ({ roomCode, username, ws }) => {
     return messageUsername === username;
   };
 
-  return (
-    <div className={`chat-container ${isOpen ? 'open' : ''}`}>
-      {/* Chat Toggle Button */}
-      <button 
-        className="chat-toggle-btn"
-        onClick={() => setIsOpen(!isOpen)}
-      >
-        {isOpen ? '✕' : '💬'}
-        {!isOpen && messages.length > 0 && (
-          <span className="chat-badge">
-            {messages.length}
-          </span>
-        )}
-      </button>
+  // Handle click outside to close chat
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (chatContainerRef.current && !chatContainerRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
 
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen, setIsOpen]);
+
+  return (
+    <div 
+      ref={chatContainerRef}
+      className={`chat-container ${isOpen ? 'open' : ''}`}
+    >
       {/* Chat Panel */}
       {isOpen && (
         <div className="chat-panel">
           <div className="chat-header">
-            <h3>Room Chat</h3>
-            <span className="room-code">{roomCode}</span>
+            <button 
+              className="mobile-back-btn" 
+              onClick={() => setIsOpen(false)}
+              title="Close Chat"
+            >
+              ✕
+            </button>
+            <h3>Chat</h3>
           </div>
 
           <div className="chat-messages">
-            {messages.length === 0 ? (
+            {(!messages || messages.length === 0) ? (
               <div className="no-messages">
                 <p>💬 No messages yet. Start the conversation!</p>
               </div>
