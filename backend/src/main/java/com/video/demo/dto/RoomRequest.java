@@ -16,4 +16,7 @@ public class RoomRequest {
     private String password;
     
     private String roomName;
+    
+    @NotBlank(message = "Creator username is required")
+    private String creator;
 }

@@ -52,4 +52,17 @@ public class RoomController {
                 .body(Map.of("error", e.getMessage()));
         }
     }
+    
+    @PostMapping("/reactivate")
+    public ResponseEntity<?> reactivateRoom(@RequestBody Map<String, String> request) {
+        try {
+            String roomCode = request.get("roomCode");
+            String username = request.get("username");
+            roomService.reactivateRoom(roomCode, username);
+            return ResponseEntity.ok(Map.of("message", "Room reactivated successfully"));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                .body(Map.of("error", e.getMessage()));
+        }
+    }
 }

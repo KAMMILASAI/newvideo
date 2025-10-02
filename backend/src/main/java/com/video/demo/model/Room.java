@@ -22,14 +22,16 @@ public class Room {
     private String roomCode;
     private String password;
     private String roomName;
+    private String creator; // Track who created the room
     private LocalDateTime createdAt;
     private Set<String> participants = new HashSet<>();
     private boolean active;
     
-    public Room(String roomCode, String password, String roomName) {
+    public Room(String roomCode, String password, String roomName, String creator) {
         this.roomCode = roomCode;
         this.password = password;
         this.roomName = roomName;
+        this.creator = creator;
         this.createdAt = LocalDateTime.now();
         this.active = true;
         this.participants = new HashSet<>();

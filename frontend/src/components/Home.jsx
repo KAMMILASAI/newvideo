@@ -39,7 +39,8 @@ function Home() {
         body: JSON.stringify({
           roomCode: formData.roomCode || undefined,
           password: formData.password,
-          roomName: formData.roomName || 'Meeting Room'
+          roomName: formData.roomName || 'Meeting Room',
+          creator: formData.username
         }),
       });
 

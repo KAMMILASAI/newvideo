@@ -31,10 +31,15 @@ public class RoomService {
         Room room = new Room(
             roomCode,
             request.getPassword(),
-            request.getRoomName() != null ? request.getRoomName() : "Meeting Room"
+            request.getRoomName() != null ? request.getRoomName() : "Meeting Room",
+            request.getCreator() // Add creator
         );
         
+        // Add creator as first participant
+        room.getParticipants().add(request.getCreator());
+        
         Room savedRoom = roomRepository.save(room);
+        System.out.println("🏠 Room created: " + roomCode + " by " + request.getCreator());
         return mapToResponse(savedRoom);
     }
     
@@ -46,8 +51,9 @@ public class RoomService {
             throw new RuntimeException("Invalid password");
         }
         
+        // Check if room is active (only creator can reactivate)
         if (!room.isActive()) {
-            throw new RuntimeException("Room is not active");
+            throw new RuntimeException("Room is not active. Only the creator can reactivate it.");
         }
         
         // Add participant
@@ -61,11 +67,13 @@ public class RoomService {
         Room room = roomRepository.findByRoomCode(roomCode)
             .orElseThrow(() -> new RuntimeException("Room not found"));
         
+        System.out.println("👤 User " + username + " leaving room: " + roomCode);
         room.getParticipants().remove(username);
         
-        // Deactivate room if no participants left
-        if (room.getParticipants().isEmpty()) {
+        // Only deactivate room if the creator leaves
+        if (room.getCreator().equals(username)) {
             room.setActive(false);
+            System.out.println("🔒 Deactivating room (creator left): " + roomCode);
         }
         
         roomRepository.save(room);
@@ -73,6 +81,22 @@ public class RoomService {
     
     private String generateRoomCode() {
         return UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    }
+    
+    public void reactivateRoom(String roomCode, String username) {
+        Room room = roomRepository.findByRoomCode(roomCode)
+            .orElseThrow(() -> new RuntimeException("Room not found"));
+        
+        // Only allow creator to reactivate the room
+        if (!room.getCreator().equals(username)) {
+            throw new RuntimeException("Only the room creator can reactivate this room");
+        }
+        
+        if (!room.isActive()) {
+            room.setActive(true);
+            roomRepository.save(room);
+            System.out.println("🔄 Room reactivated by creator " + username + ": " + roomCode);
+        }
     }
     
     private RoomResponse mapToResponse(Room room) {
