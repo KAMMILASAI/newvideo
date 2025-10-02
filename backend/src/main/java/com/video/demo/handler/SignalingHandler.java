@@ -48,6 +48,9 @@ public class SignalingHandler extends TextWebSocketHandler {
                 case "leave":
                     handleLeave(session, roomCode, username);
                     break;
+                case "chat":
+                    handleChat(session, data, roomCode, username);
+                    break;
                 default:
                     log.warn("Unknown message type: {}", type);
             }
@@ -107,6 +110,23 @@ public class SignalingHandler extends TextWebSocketHandler {
             
             log.info("User {} left room {}", username, roomCode);
         }
+    }
+    
+    private void handleChat(WebSocketSession session, Map<String, Object> data, String roomCode, String username) throws IOException {
+        String message = (String) data.get("message");
+        
+        // Create chat message
+        Map<String, Object> chatMessage = Map.of(
+            "type", "chat",
+            "username", username,
+            "message", message,
+            "timestamp", System.currentTimeMillis()
+        );
+        
+        // Broadcast to all participants in the room (including sender for confirmation)
+        broadcastToRoom(roomCode, chatMessage, null);
+        
+        log.info("Chat message from {} in room {}: {}", username, roomCode, message);
     }
     
     @Override

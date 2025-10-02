@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash, FaPhoneSlash } from 'react-icons/fa';
+import Chat from './Chat';
 import '../styles/VideoCall.css';
 
 // Use environment variables for deployment
@@ -643,6 +644,13 @@ function VideoCall() {
           <FaPhoneSlash size={24} />
         </button>
       </div>
+      
+      {/* Chat Component */}
+      <Chat 
+        roomCode={roomCode} 
+        username={username} 
+        ws={wsRef.current} 
+      />
     </div>
   );
 }
